@@ -1,0 +1,330 @@
+[
+    {
+        "id": "c522dd3d31dc36b8",
+        "type": "tab",
+        "label": "Flow 3",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "8fa0cb9cbb777222",
+        "type": "inject",
+        "z": "c522dd3d31dc36b8",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "30",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 170,
+        "y": 140,
+        "wires": [
+            [
+                "eac6c7e33ec83081"
+            ]
+        ]
+    },
+    {
+        "id": "eac6c7e33ec83081",
+        "type": "function",
+        "z": "c522dd3d31dc36b8",
+        "name": "function 2",
+        "func": "// Dodajemy \"question=\" na początku, aby zachować format formularza\nmsg.payload = \"question=30020130020230020330020430020530020630020730020830020a30021030021230021430021730021830021930030130030230030430030530030730030b30030c30030d30030f30031030070130070330070530070630070730070830070930070a30070b30070d30070e30070f30210130210530050130050230050330050430050530050630050730050830050930051b30051c30051d30051e300e03300e04300e10300e15300e2a300e49300eb531130131130331130431130531130731130831130931130a31130b31130c31130d31130e31130f31131031131131131231131331131431131531131631131731131831131931131a31131b31131c31131d31131e31131f31132031132131132231132331132431132531132631132731132831132931132a31132b31132c31140131140231140331140431140531140631140731140831140931140a31140b31140c31140d31140e31140f31141031141131141230090130090630090730090830090930090a30090e300108\";\n// Reszta nagłówków bez zmian\nmsg.headers = {\n    \"Content-Type\": \"application/x-www-form-urlencoded; charset=UTF-8\",\n    \"Cookie\": \"LangName=Polish; P_Prop=Bar; T_Prop=%C2%B0C; E_Prop=kWh\",\n    \"Referer\": \"http://10.8.0.2:8080/\",\n    \"Origin\": \"http://10.8.0.2:8080/\",\n    \"X-Requested-With\": \"XMLHttpRequest\"\n};\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 140,
+        "wires": [
+            [
+                "a87ce944e38b5ca5"
+            ]
+        ]
+    },
+    {
+        "id": "a87ce944e38b5ca5",
+        "type": "http request",
+        "z": "c522dd3d31dc36b8",
+        "name": "",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "http://10.8.0.2:8080/cgi-bin/mkv.cgi",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 510,
+        "y": 140,
+        "wires": [
+            [
+                "485507eb4b37d77f"
+            ]
+        ]
+    },
+    {
+        "id": "485507eb4b37d77f",
+        "type": "function",
+        "z": "c522dd3d31dc36b8",
+        "name": "function 3",
+        "func": "let hexData = msg.payload;\n\n// Zabezpieczenie przed uciętą ramką\nif (!hexData || hexData.length < 200) return null;\n\nlet chunks = [];\nfor (let i = 0; i < hexData.length; i += 8) {\n    chunks.push(hexData.substring(i, i + 8));\n}\n\n// Dekoder dla czujników analogowych (Wartość = 4 pierwsze znaki)\nfunction decodeAnalog(chunk, divider = 1) {\n    if (!chunk || chunk.length < 8) return null;\n    let valueHex = chunk.substring(0, 4);\n    let statusHex = chunk.substring(4, 8);\n\n    let status = parseInt(statusHex, 16);\n    // 136 lub 32767 to błąd czujnika / odpięty kabel\n    if (status === 136 || status === 32767) return null;\n\n    let value = parseInt(valueHex, 16);\n    if (value > 32767) value -= 65536; // liczby ujemne (np. ujemne ciśnienie filtra)\n\n    return Number((value / divider).toFixed(3));\n}\n\n// Dekoder dla liczników pełnych (np. starty)\nfunction decodeCounter(chunk) {\n    if (!chunk || chunk.length < 8) return null;\n    return parseInt(chunk, 16);\n}\n\n// Dekoder dla godzin (sekundy na godziny)\nfunction decodeHours(chunk) {\n    if (!chunk || chunk.length < 8) return null;\n    return Number((parseInt(chunk, 16) / 3600).toFixed(1));\n}\n\n// POPRAWIONY Dekoder wejść/wyjść cyfrowych (Mk5)\nfunction decodeDigital(chunk) {\n    if (!chunk || chunk.length < 8) return null;\n    let valueHex = chunk.substring(0, 4);\n    let statusHex = chunk.substring(4, 8);\n\n    let status = parseInt(statusHex, 16);\n    // 128 (0080 w hex) oznacza \"Sygnał OK\"\n    if (status !== 128 && status !== 0) return null;\n\n    let value = parseInt(valueHex, 16);\n    return value > 0; // Zwraca true jeśli 1, false jeśli 0\n}\n\nlet telemetry = {};\n\n// ==========================================\n// 1. CIŚNIENIA\n// ==========================================\ntelemetry.cisnienie_wylotowe_bar = decodeAnalog(chunks[0], 1000);\ntelemetry.dp_filtra_powietrza_bar = decodeAnalog(chunks[1], 1000);\ntelemetry.cisnienie_wtrysku_oleju_bar = decodeAnalog(chunks[2], 1000);\ntelemetry.dp_separatora_oleju_bar = decodeAnalog(chunks[3], 1000);\ntelemetry.cisnienie_w_zbiorniku_bar = decodeAnalog(chunks[4], 1000);\ntelemetry.cisnienie_parowania_bar = decodeAnalog(chunks[10], 1000);\ntelemetry.cisnienie_skraplacza_bar = decodeAnalog(chunks[11], 100);\n\n// ==========================================\n// 2. TEMPERATURY\n// ==========================================\ntelemetry.temp_wylot_ze_sprezarki_C = decodeAnalog(chunks[5], 10);\ntelemetry.temp_wylot_z_1_stopnia_C = decodeAnalog(chunks[6], 10);\ntelemetry.temp_wtrysk_oleju_C = decodeAnalog(chunks[7], 10);\ntelemetry.temp_wlot_pow_chlodz_C = decodeAnalog(chunks[8], 10);\ntelemetry.temp_otoczenia_C = decodeAnalog(chunks[9], 10);\ntelemetry.lat_osuszacza_1_C = decodeAnalog(chunks[12], 10);\ntelemetry.temp_wylot_cz_chlodn_sprezarki_1_C = decodeAnalog(chunks[13], 10);\ntelemetry.temp_czynnik_chlodniczy_1_C = decodeAnalog(chunks[14], 10);\n\n// ==========================================\n// 3. LICZNIKI CZASU PRACY\n// ==========================================\ntelemetry.godziny_pracy = decodeHours(chunks[25]);\ntelemetry.czas_pracy_modulu = decodeHours(chunks[34]);\n\n// ==========================================\n// 4. STATYSTYKI I STARTY\n// ==========================================\ntelemetry.startow_silnika = decodeCounter(chunks[26]);\ntelemetry.starty_osuszacza = decodeCounter(chunks[32]);\ntelemetry.starty_wentylatora = decodeCounter(chunks[33]);\ntelemetry.zatrzymania_awaryjne = decodeCounter(chunks[35]);\ntelemetry.zatrzymania_bezposrednie = decodeCounter(chunks[36]);\n\n// ==========================================\n// 5. FALOWNIK I PRZEPŁYW\n// ==========================================\ntelemetry.falownik_abb_rpm = decodeAnalog(chunks[37], 1);\ntelemetry.przeplyw_proc = decodeCounter(chunks[38]);\n\n// ==========================================\n// 6. OBLICZANIE PROFILU VSD\n// ==========================================\nlet vsd1 = decodeCounter(chunks[27]) || 0;\nlet vsd2 = decodeCounter(chunks[28]) || 0;\nlet vsd3 = decodeCounter(chunks[29]) || 0;\nlet vsd4 = decodeCounter(chunks[30]) || 0;\nlet vsd5 = decodeCounter(chunks[31]) || 0;\nlet vsd_total = vsd1 + vsd2 + vsd3 + vsd4 + vsd5;\n\nif (vsd_total > 0) {\n    telemetry.vsd_0_20_proc = Math.round((vsd1 / vsd_total) * 100);\n    telemetry.vsd_20_40_proc = Math.round((vsd2 / vsd_total) * 100);\n    telemetry.vsd_40_60_proc = Math.round((vsd3 / vsd_total) * 100);\n    telemetry.vsd_60_80_proc = Math.round((vsd4 / vsd_total) * 100);\n    telemetry.vsd_80_100_proc = Math.round((vsd5 / vsd_total) * 100);\n}\n\n// ==========================================\n// 7. WEJŚCIA/WYJŚCIA CYFROWE (Korekta dla GA160)\n// ==========================================\n\n// Indeks 19 to adres 300307 - Emergency Stop (Logika odwrócona: 1=OK, 0=Błąd)\nlet safety_ok = decodeDigital(chunks[19]);\n\n// Indeksy z grupy 3005xx (Stan rzeczywisty podzespołów)\n// 300501 (Indeks 41) - Motor Running\n// 300502 (Indeks 42) - Loading\n// 300503 (Indeks 43) - Automatic Operation\nlet is_running = decodeDigital(chunks[41]);\nlet is_loaded = decodeDigital(chunks[42]);\nlet is_auto = decodeDigital(chunks[43]);\nlet is_warning = decodeDigital(chunks[18]); // 300305 - Ostrzeżenie\n\ntelemetry.silnik_pracuje = is_running;\ntelemetry.stan_dociazenia = is_loaded;\ntelemetry.praca_automatyczna = is_auto;\n\n// ==========================================\n// 8. LOGIKA STANU PRACY (Korekta warunków)\n// ==========================================\nlet stan_maszyny = \"Nieznany\";\n\n// Jeśli safety_ok jest FALSE (czyli 0), to mamy błąd\nif (safety_ok === false) {\n    stan_maszyny = \"WYŁĄCZENIE AWARYJNE\";\n} else if (is_running && is_loaded) {\n    stan_maszyny = \"PRACA: DOCIĄŻONA\";\n} else if (is_running && !is_loaded) {\n    stan_maszyny = \"PRACA: ODCIĄŻONA\";\n} else if (!is_running && is_auto) {\n    stan_maszyny = \"CZUWANIE (AUTO)\";\n} else if (!is_running && !is_auto) {\n    stan_maszyny = \"ZATRZYMANA (RĘCZNY)\";\n}\n\nif (is_warning) stan_maszyny += \" / OSTRZEŻENIE\";\n\ntelemetry.stan_maszyny = stan_maszyny;\n\n// Czyszczenie payloadu z pustych wartości i błędów\nObject.keys(telemetry).forEach(key => {\n    if (telemetry[key] === null || Number.isNaN(telemetry[key])) delete telemetry[key];\n});\n\nmsg.payload = telemetry;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 680,
+        "y": 140,
+        "wires": [
+            [
+                "f179380c3f1a1d19",
+                "6a401184bd9d6cc3"
+            ]
+        ]
+    },
+    {
+        "id": "f179380c3f1a1d19",
+        "type": "debug",
+        "z": "c522dd3d31dc36b8",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 700,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "6a401184bd9d6cc3",
+        "type": "mqtt out",
+        "z": "c522dd3d31dc36b8",
+        "name": "",
+        "topic": "v1/devices/me/telemetry",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "4daac8e646293672",
+        "x": 930,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "21faf7225a6ae49c",
+        "type": "inject",
+        "z": "c522dd3d31dc36b8",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "30",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 170,
+        "y": 280,
+        "wires": [
+            [
+                "3b0621f30a6a5154"
+            ]
+        ]
+    },
+    {
+        "id": "3b0621f30a6a5154",
+        "type": "function",
+        "z": "c522dd3d31dc36b8",
+        "name": "function 4",
+        "func": "// Dodajemy \"question=\" na początku, aby zachować format formularza\nmsg.payload = \"question=30020130020230020330020430020530020630020730020830020a30021030021230021430021730021830021930030130030230030430030530030730030b30030c30030d30030f30031030070130070330070530070630070730070830070930070a30070b30070d30070e30070f30210130210530050130050230050330050430050530050630050730050830050930051b30051c30051d30051e300e03300e04300e10300e15300e2a300e49300eb531130131130331130431130531130731130831130931130a31130b31130c31130d31130e31130f31131031131131131231131331131431131531131631131731131831131931131a31131b31131c31131d31131e31131f31132031132131132231132331132431132531132631132731132831132931132a31132b31132c31140131140231140331140431140531140631140731140831140931140a31140b31140c31140d31140e31140f31141031141131141230090130090630090730090830090930090a30090e300108\";\n// Reszta nagłówków bez zmian\nmsg.headers = {\n    \"Content-Type\": \"application/x-www-form-urlencoded; charset=UTF-8\",\n    \"Cookie\": \"LangName=Polish; P_Prop=Bar; T_Prop=%C2%B0C; E_Prop=kWh\",\n    \"Referer\": \"http://10.8.0.2:8081/\",\n    \"Origin\": \"http://10.8.0.2:8081/\",\n    \"X-Requested-With\": \"XMLHttpRequest\"\n};\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 280,
+        "wires": [
+            [
+                "84ba838077d56667"
+            ]
+        ]
+    },
+    {
+        "id": "84ba838077d56667",
+        "type": "http request",
+        "z": "c522dd3d31dc36b8",
+        "name": "",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "http://10.8.0.2:8081/cgi-bin/mkv.cgi",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 510,
+        "y": 280,
+        "wires": [
+            [
+                "e1322ad126765f26"
+            ]
+        ]
+    },
+    {
+        "id": "e1322ad126765f26",
+        "type": "function",
+        "z": "c522dd3d31dc36b8",
+        "name": "function 5",
+        "func": "let hexData = msg.payload;\n\n// Zabezpieczenie przed uciętą ramką\nif (!hexData || hexData.length < 200) return null;\n\nlet chunks = [];\nfor (let i = 0; i < hexData.length; i += 8) {\n    chunks.push(hexData.substring(i, i + 8));\n}\n\n// Dekoder dla czujników analogowych (Wartość = 4 pierwsze znaki)\nfunction decodeAnalog(chunk, divider = 1) {\n    if (!chunk || chunk.length < 8) return null;\n    let valueHex = chunk.substring(0, 4);\n    let statusHex = chunk.substring(4, 8);\n    \n    let status = parseInt(statusHex, 16);\n    // 136 lub 32767 to błąd czujnika / odpięty kabel\n    if (status === 136 || status === 32767) return null; \n    \n    let value = parseInt(valueHex, 16);\n    if (value > 32767) value -= 65536; // liczby ujemne (np. ujemne ciśnienie filtra)\n    \n    return Number((value / divider).toFixed(3));\n}\n\n// Dekoder dla liczników pełnych (np. starty)\nfunction decodeCounter(chunk) {\n    if (!chunk || chunk.length < 8) return null;\n    return parseInt(chunk, 16);\n}\n\n// Dekoder dla godzin (sekundy na godziny)\nfunction decodeHours(chunk) {\n    if (!chunk || chunk.length < 8) return null;\n    return Number((parseInt(chunk, 16) / 3600).toFixed(1));\n}\n\n// POPRAWIONY Dekoder wejść/wyjść cyfrowych (Mk5)\nfunction decodeDigital(chunk) {\n    if (!chunk || chunk.length < 8) return null;\n    let valueHex = chunk.substring(0, 4);\n    let statusHex = chunk.substring(4, 8);\n    \n    let status = parseInt(statusHex, 16);\n    // 128 (0080 w hex) oznacza \"Sygnał OK\"\n    if (status !== 128 && status !== 0) return null; \n    \n    let value = parseInt(valueHex, 16);\n    return value > 0; // Zwraca true jeśli 1, false jeśli 0\n}\n\nlet telemetry = {};\n\n// ==========================================\n// 1. CIŚNIENIA\n// ==========================================\ntelemetry.cisnienie_wylotowe_bar = decodeAnalog(chunks[0], 1000); \ntelemetry.dp_filtra_powietrza_bar = decodeAnalog(chunks[1], 1000); \ntelemetry.cisnienie_wtrysku_oleju_bar = decodeAnalog(chunks[2], 1000); \ntelemetry.dp_separatora_oleju_bar = decodeAnalog(chunks[3], 1000); \ntelemetry.cisnienie_w_zbiorniku_bar = decodeAnalog(chunks[4], 1000); \ntelemetry.cisnienie_parowania_bar = decodeAnalog(chunks[10], 1000); \ntelemetry.cisnienie_skraplacza_bar = decodeAnalog(chunks[11], 100); \n\n// ==========================================\n// 2. TEMPERATURY\n// ==========================================\ntelemetry.temp_wylot_ze_sprezarki_C = decodeAnalog(chunks[5], 10); \ntelemetry.temp_wylot_z_1_stopnia_C = decodeAnalog(chunks[6], 10); \ntelemetry.temp_wtrysk_oleju_C = decodeAnalog(chunks[7], 10); \ntelemetry.temp_wlot_pow_chlodz_C = decodeAnalog(chunks[8], 10); \ntelemetry.temp_otoczenia_C = decodeAnalog(chunks[9], 10); \ntelemetry.lat_osuszacza_1_C = decodeAnalog(chunks[12], 10); \ntelemetry.temp_wylot_cz_chlodn_sprezarki_1_C = decodeAnalog(chunks[13], 10); \ntelemetry.temp_czynnik_chlodniczy_1_C = decodeAnalog(chunks[14], 10); \n\n// ==========================================\n// 3. LICZNIKI CZASU PRACY\n// ==========================================\ntelemetry.godziny_pracy = decodeHours(chunks[25]); \ntelemetry.czas_pracy_modulu = decodeHours(chunks[34]); \n\n// ==========================================\n// 4. STATYSTYKI I STARTY\n// ==========================================\ntelemetry.startow_silnika = decodeCounter(chunks[26]); \ntelemetry.starty_osuszacza = decodeCounter(chunks[32]); \ntelemetry.starty_wentylatora = decodeCounter(chunks[33]); \ntelemetry.zatrzymania_awaryjne = decodeCounter(chunks[35]); \ntelemetry.zatrzymania_bezposrednie = decodeCounter(chunks[36]); \n\n// ==========================================\n// 5. FALOWNIK I PRZEPŁYW\n// ==========================================\ntelemetry.falownik_abb_rpm = decodeAnalog(chunks[37], 1); \ntelemetry.przeplyw_proc = decodeCounter(chunks[38]); \n\n// ==========================================\n// 6. OBLICZANIE PROFILU VSD\n// ==========================================\nlet vsd1 = decodeCounter(chunks[27]) || 0;\nlet vsd2 = decodeCounter(chunks[28]) || 0;\nlet vsd3 = decodeCounter(chunks[29]) || 0;\nlet vsd4 = decodeCounter(chunks[30]) || 0;\nlet vsd5 = decodeCounter(chunks[31]) || 0;\nlet vsd_total = vsd1 + vsd2 + vsd3 + vsd4 + vsd5;\n\nif (vsd_total > 0) {\n    telemetry.vsd_0_20_proc = Math.round((vsd1 / vsd_total) * 100);\n    telemetry.vsd_20_40_proc = Math.round((vsd2 / vsd_total) * 100);\n    telemetry.vsd_40_60_proc = Math.round((vsd3 / vsd_total) * 100);\n    telemetry.vsd_60_80_proc = Math.round((vsd4 / vsd_total) * 100);\n    telemetry.vsd_80_100_proc = Math.round((vsd5 / vsd_total) * 100);\n}\n\n// ==========================================\n// 7. WEJŚCIA/WYJŚCIA CYFROWE (Korekta dla GA160)\n// ==========================================\n\n// Indeks 19 to adres 300307 - Emergency Stop (Logika odwrócona: 1=OK, 0=Błąd)\nlet safety_ok = decodeDigital(chunks[19]); \n\n// Indeksy z grupy 3005xx (Stan rzeczywisty podzespołów)\n// 300501 (Indeks 41) - Motor Running\n// 300502 (Indeks 42) - Loading\n// 300503 (Indeks 43) - Automatic Operation\nlet is_running = decodeDigital(chunks[41]); \nlet is_loaded  = decodeDigital(chunks[42]); \nlet is_auto    = decodeDigital(chunks[43]); \nlet is_warning = decodeDigital(chunks[18]); // 300305 - Ostrzeżenie\n\ntelemetry.silnik_pracuje = is_running;\ntelemetry.stan_dociazenia = is_loaded;\ntelemetry.praca_automatyczna = is_auto;\n\n// ==========================================\n// 8. LOGIKA STANU PRACY (Korekta warunków)\n// ==========================================\nlet stan_maszyny = \"Nieznany\";\n\n// Jeśli safety_ok jest FALSE (czyli 0), to mamy błąd\nif (safety_ok === false) {\n    stan_maszyny = \"WYŁĄCZENIE AWARYJNE\";\n} else if (is_running && is_loaded) {\n    stan_maszyny = \"PRACA: DOCIĄŻONA\";\n} else if (is_running && !is_loaded) {\n    stan_maszyny = \"PRACA: ODCIĄŻONA\";\n} else if (!is_running && is_auto) {\n    stan_maszyny = \"CZUWANIE (AUTO)\";\n} else if (!is_running && !is_auto) {\n    stan_maszyny = \"ZATRZYMANA (RĘCZNY)\";\n}\n\nif (is_warning) stan_maszyny += \" / OSTRZEŻENIE\";\n\ntelemetry.stan_maszyny = stan_maszyny;\n\n// Czyszczenie payloadu z pustych wartości i błędów\nObject.keys(telemetry).forEach(key => {\n    if (telemetry[key] === null || Number.isNaN(telemetry[key])) delete telemetry[key];\n});\n\nmsg.payload = telemetry;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 680,
+        "y": 280,
+        "wires": [
+            [
+                "dfa4774c5ef988e0",
+                "6174a24912570922"
+            ]
+        ]
+    },
+    {
+        "id": "dfa4774c5ef988e0",
+        "type": "debug",
+        "z": "c522dd3d31dc36b8",
+        "name": "debug 2",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 700,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "6174a24912570922",
+        "type": "mqtt out",
+        "z": "c522dd3d31dc36b8",
+        "name": "",
+        "topic": "v1/devices/me/telemetry",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "b02513db4022f8a9",
+        "x": 930,
+        "y": 280,
+        "wires": []
+    },
+    {
+        "id": "4daac8e646293672",
+        "type": "mqtt-broker",
+        "name": "TB - Maszyna 1",
+        "broker": "192.168.1.50",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "3",
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "b02513db4022f8a9",
+        "type": "mqtt-broker",
+        "name": "TB - Maszyna 2",
+        "broker": "192.168.1.50",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "3",
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    }
+]
